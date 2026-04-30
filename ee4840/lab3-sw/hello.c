@@ -1,6 +1,6 @@
 /*
  * Userspace program for VGA Air Hockey
- * Controls puck position using mouse input
+ * Controls puck position using mouse input (evdev interface)
  */
 
 #include <stdio.h>
@@ -9,8 +9,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/ioctl.h>
-#include <sys/types.h>
-#include <sys/stat.h>
+#include <linux/input.h>
 #include "vga_ball.h"
 
 /* Ice area bounds (wall + puck radius = 10+4+10 = 24) */
@@ -37,13 +36,13 @@ static int clamp(int val, int lo, int hi)
     return val;
 }
 
-int main()
+int main(int argc, char *argv[])
 {
-    static const char dev_vga[]   = "/dev/vga_ball";
-    static const char dev_mouse[] = "/dev/input/mice";
-    signed char buf[3];
+    static const char dev_vga[] = "/dev/vga_ball";
+    const char *dev_mouse = (argc > 1) ? argv[1] : "/dev/input/event0";
+    struct input_event ev;
     int mouse_fd;
-    int x = 320, y = 240;   /* start at centre */
+    int x = 320, y = 240;
 
     vga_ball_fd = open(dev_vga, O_RDWR);
     if (vga_ball_fd == -1) {
@@ -58,12 +57,17 @@ int main()
     }
 
     printf("Air Hockey started — move mouse to control puck\n");
+    printf("Using mouse device: %s\n", dev_mouse);
     set_puck_pos(x, y);
 
-    while (read(mouse_fd, buf, 3) == 3) {
-        x = clamp(x + buf[1], X_MIN, X_MAX);
-        y = clamp(y + buf[2], Y_MIN, Y_MAX);
-        set_puck_pos(x, y);
+    while (read(mouse_fd, &ev, sizeof(ev)) == sizeof(ev)) {
+        if (ev.type == EV_REL) {
+            if (ev.code == REL_X)
+                x = clamp(x + ev.value, X_MIN, X_MAX);
+            else if (ev.code == REL_Y)
+                y = clamp(y + ev.value, Y_MIN, Y_MAX);
+            set_puck_pos(x, y);
+        }
     }
 
     close(mouse_fd);
